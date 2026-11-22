@@ -1,0 +1,55 @@
+name: iOS IPA Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: Build unsigned iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Build iOS app
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then
+            echo "::error::Add the iOS-restricted Google Maps key as the MAPS_API_KEY Actions secret."
+            exit 1
+          fi
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::Add the production API URL ending in /api as the API_BASE_URL Actions variable."
+            exit 1
+          fi
+          printf 'MAPS_API_KEY = %s\n' "$MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
+          flutter build ios --release --no-codesign \
+            --dart-define="MAPS_API_KEY=$MAPS_API_KEY" \
+            --dart-define="API_BASE_URL=$API_BASE_URL"
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -qry Camposs-unsigned.ipa Payload
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: camposs-ios-unsigned-ipa
+          path: build/ios/ipa/Camposs-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
